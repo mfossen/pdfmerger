@@ -9,5 +9,5 @@
 
 1. `pdfmerger` will read in a directory of PDF files, group them by `T_##` and then merge them in sorted order into a single file named `T_##.pdf`
 2. `pdfmerger.exe --input-directory in-pdfs --output-directory out-pdfs` should be all the program needs, and will create `out-pdfs` if it doesn't exist.
-    
-    a. for example, if you are in powershell in your Downloads folder where you downloaded `pdfmerger.exe`, with a directory of PDF files in the Downloads folder, you'd run `./pdfmerger.exe --input-directory 'Input PDF Files' --output-directory 'Output PDF Files'`
+
+for example, if you are in powershell in your Downloads folder where you downloaded `pdfmerger.exe`, with a directory of PDF files in the Downloads folder, you'd run `./pdfmerger.exe --input-directory 'Input PDF Files' --output-directory 'Output PDF Files'` (if there are spaces in the folder name, it needs to be surrounded by single quotes, otherwise they can be left out. Also appears to break if there's a trailing slash on the name, like `'this folder name breaks/` however `this folder name works`)
