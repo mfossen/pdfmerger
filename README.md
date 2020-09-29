@@ -12,4 +12,4 @@
 
 for example, if you are in powershell in your Downloads folder where you downloaded `pdfmerger.exe`, with a directory of PDF files in the Downloads folder, you'd run `./pdfmerger.exe --input-directory 'Input PDF Files' --output-directory 'Output PDF Files'`
 
-(if there are spaces in the folder name, it needs to be surrounded by single quotes, otherwise they can be left out. Also appears to break if there's a trailing slash on the name, like `'this folder name breaks/` however `this folder name works`)
+(if there are spaces in the folder name, it needs to be surrounded by single quotes, otherwise they can be left out. Also appears to break if there's a trailing slash on the name, like `'this folder name breaks/'` however `'this folder name works'`)
