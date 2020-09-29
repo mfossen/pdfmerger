@@ -1,0 +1,29 @@
+# github.com/cpuguy83/go-md2man/v2 v2.0.0
+## explicit
+github.com/cpuguy83/go-md2man/v2/md2man
+# github.com/hhrutter/lzw v0.0.0-20190829144645-6f07a24e8650
+github.com/hhrutter/lzw
+# github.com/hhrutter/tiff v0.0.0-20190829141212-736cae8d0bc7
+github.com/hhrutter/tiff
+# github.com/pdfcpu/pdfcpu v0.3.5
+## explicit
+github.com/pdfcpu/pdfcpu/internal/corefont/metrics
+github.com/pdfcpu/pdfcpu/pkg/api
+github.com/pdfcpu/pdfcpu/pkg/filter
+github.com/pdfcpu/pdfcpu/pkg/font
+github.com/pdfcpu/pdfcpu/pkg/log
+github.com/pdfcpu/pdfcpu/pkg/pdfcpu
+github.com/pdfcpu/pdfcpu/pkg/pdfcpu/validate
+github.com/pdfcpu/pdfcpu/pkg/types
+# github.com/pkg/errors v0.9.1
+github.com/pkg/errors
+# github.com/russross/blackfriday/v2 v2.0.1
+github.com/russross/blackfriday/v2
+# github.com/shurcooL/sanitized_anchor_name v1.0.0
+github.com/shurcooL/sanitized_anchor_name
+# github.com/urfave/cli/v2 v2.2.0
+## explicit
+github.com/urfave/cli/v2
+# golang.org/x/image v0.0.0-20200927104501-e162460cd6b5
+## explicit
+golang.org/x/image/ccitt
