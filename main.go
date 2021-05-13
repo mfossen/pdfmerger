@@ -115,14 +115,14 @@ func parseProjectName(file string) string {
 
 	cleanPath := strings.TrimSuffix(file, filepath.Ext(file))
 
-	slice := strings.Split(cleanPath, "_")
+	slice := strings.Split(cleanPath, "-")
 
 	if len(slice) < 2 {
 		return cleanPath
 	}
 
-	joined := strings.Join(slice[0:2], "_")
-	return joined
+	//joined := strings.Join(slice[0:2], "_")
+	return slice[0]
 }
 
 func mergePDF(project string, projectFiles []string) error {
