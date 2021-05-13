@@ -112,9 +112,17 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 
 // split pdf name by underscare and take index 1 as the project name
 func parseProjectName(file string) string {
-	slice := strings.Split(file, "_")[0:2]
 
-	return strings.Join(slice, "_")
+	cleanPath := strings.TrimSuffix(file, filepath.Ext(file))
+
+	slice := strings.Split(cleanPath, "_")
+
+	if len(slice) < 2 {
+		return cleanPath
+	}
+
+	joined := strings.Join(slice[0:2], "_")
+	return joined
 }
 
 func mergePDF(project string, projectFiles []string) error {
