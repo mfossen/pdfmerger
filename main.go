@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -39,20 +40,47 @@ func flags() []cli.Flag {
 			Name:        "input-directory",
 			Aliases:     []string{"i"},
 			Usage:       "read PDF files from `INPUT` directory",
-			Required:    true,
+			Required:    false,
 			Destination: &inputDir,
 		},
 		&cli.StringFlag{
 			Name:        "output-directory",
 			Aliases:     []string{"o"},
 			Usage:       "write merged PDF files to `OUTPUT` directory",
-			Required:    true,
+			Required:    false,
 			Destination: &outputDir,
 		},
 	}
 }
 
+func checkAndSetAlternateDirectories(args []string) error {
+	if inputDir != "" && outputDir != "" {
+		return nil
+	}
+
+	if (inputDir != "" && outputDir == "") || (inputDir == "" && outputDir != "") {
+		return errors.New("must use both -i and -o or neither")
+	}
+
+	//do some parsing, input and output dir separated by ::
+	line := strings.Join(args, " ")
+	splitLine := strings.Split(line, "::")
+
+	if len(splitLine) != 2 {
+		return fmt.Errorf("split line does not end up with two directories: %v", splitLine)
+	}
+
+	inputDir = strings.TrimSpace(splitLine[0])
+	outputDir = strings.TrimSpace(splitLine[1])
+
+	return nil
+}
+
 func run(c *cli.Context) error {
+	if err := checkAndSetAlternateDirectories(c.Args().Slice()); err != nil {
+		return err
+	}
+
 	// create output directory if it doesn't exist
 	if _, err := os.Stat(outputDir); err != nil {
 		if os.IsNotExist(err) {
