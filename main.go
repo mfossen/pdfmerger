@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 	"github.com/urfave/cli/v2"
 )
 
@@ -18,7 +19,6 @@ var (
 	outputDir string
 	projects  map[string][]string
 )
-
 
 func main() {
 
@@ -170,5 +170,7 @@ func mergePDF(project string, projectFiles []string) error {
 
 	outputFile := filepath.Join(outputDir, project+".pdf")
 
-	return api.MergeCreateFile(projectFiles, outputFile, nil)
+	mergeConf := pdfcpu.NewDefaultConfiguration()
+	mergeConf.ValidationMode = pdfcpu.ValidationNone
+	return api.MergeCreateFile(projectFiles, outputFile, mergeConf)
 }
