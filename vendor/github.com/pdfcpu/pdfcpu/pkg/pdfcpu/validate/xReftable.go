@@ -18,6 +18,13 @@ limitations under the License.
 package validate
 
 import (
+	"fmt"
+	"net/http"
+	"net/url"
+	"sort"
+	"strconv"
+	"time"
+
 	"github.com/pdfcpu/pdfcpu/pkg/log"
 	pdf "github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 	"github.com/pkg/errors"
@@ -124,7 +131,7 @@ func validateNames(xRefTable *pdf.XRefTable, rootDict pdf.Dict, required bool, s
 		if err != nil {
 			return err
 		}
-		if d == nil {
+		if d == nil || len(d) == 0 {
 			continue
 		}
 
@@ -322,7 +329,7 @@ func validateMetadata(xRefTable *pdf.XRefTable, d pdf.Dict, required bool, since
 		return err
 	}
 
-	_, err = validateNameEntry(xRefTable, sd.Dict, dictName, "SubType", OPTIONAL, sinceVersion, func(s string) bool { return s == "XML" })
+	_, err = validateNameEntry(xRefTable, sd.Dict, dictName, "Subtype", OPTIONAL, sinceVersion, func(s string) bool { return s == "XML" })
 
 	return err
 }
@@ -803,6 +810,77 @@ func validateNeedsRendering(xRefTable *pdf.XRefTable, rootDict pdf.Dict, require
 	return err
 }
 
+func logURIError(xRefTable *pdf.XRefTable, pages []int) {
+	fmt.Println()
+	for _, page := range pages {
+		for uri, resp := range xRefTable.URIs[page] {
+			if resp != "" {
+				var s string
+				switch resp {
+				case "i":
+					s = "invalid url"
+				case "s":
+					s = "severe error"
+				default:
+					s = fmt.Sprintf("status=%s", resp)
+				}
+				log.CLI.Printf("Page %d: %s %s\n", page, uri, s)
+			}
+		}
+	}
+}
+
+func checkForBrokenLinks(xRefTable *pdf.XRefTable) error {
+	var httpErr bool
+	log.CLI.Println("validating URIs..")
+
+	pages := []int{}
+	for i := range xRefTable.URIs {
+		pages = append(pages, i)
+	}
+	sort.Ints(pages)
+
+	client := http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	for _, page := range pages {
+		for uri := range xRefTable.URIs[page] {
+			if log.IsCLILoggerEnabled() {
+				fmt.Printf(".")
+			}
+			_, err := url.ParseRequestURI(uri)
+			if err != nil {
+				httpErr = true
+				xRefTable.URIs[page][uri] = "i"
+				continue
+			}
+			res, err := client.Get(uri)
+			if err != nil {
+				httpErr = true
+				xRefTable.URIs[page][uri] = "s"
+				continue
+			}
+			defer res.Body.Close()
+			if res.StatusCode != 200 {
+				httpErr = true
+				xRefTable.URIs[page][uri] = strconv.Itoa(res.StatusCode)
+				continue
+			}
+		}
+	}
+
+	if log.IsCLILoggerEnabled() {
+		logURIError(xRefTable, pages)
+	}
+
+	if httpErr {
+		return errors.New("broken links detected")
+	}
+
+	return nil
+}
+
 func validateRootObject(xRefTable *pdf.XRefTable) error {
 
 	log.Validate.Println("*** validateRootObject begin ***")
@@ -903,7 +981,11 @@ func validateRootObject(xRefTable *pdf.XRefTable) error {
 	}
 
 	// Validate remainder of annotations after AcroForm validation only.
-	err = validatePagesAnnotations(xRefTable, rootPageNodeDict)
+	_, err = validatePagesAnnotations(xRefTable, rootPageNodeDict, 0)
+
+	if xRefTable.ValidateLinks && len(xRefTable.URIs) > 0 {
+		err = checkForBrokenLinks(xRefTable)
+	}
 
 	if err == nil {
 		log.Validate.Println("*** validateRootObject end ***")

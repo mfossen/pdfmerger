@@ -107,7 +107,7 @@ func stopObjectStream(ctx *Context) error {
 
 	// Encode objStreamDict.Content -> objStreamDict.Raw
 	// and wipe (decoded) content to free up memory.
-	if err := encodeStream(&osd.StreamDict); err != nil {
+	if err := osd.StreamDict.Encode(); err != nil {
 		return err
 	}
 
@@ -404,7 +404,7 @@ func writeStream(w *WriteContext, sd StreamDict) (int64, error) {
 		return 0, errors.Errorf("writeStream: failed to write raw content: %d bytes written - streamlength:%d", c, *sd.StreamLength)
 	}
 
-	e, err := w.WriteString("endstream")
+	e, err := w.WriteString(fmt.Sprintf("%sendstream", w.Eol))
 	if err != nil {
 		return 0, errors.Wrapf(err, "writeStream: failed to write raw content")
 	}

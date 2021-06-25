@@ -104,7 +104,7 @@ func (ctx *Context) ExtractImage(objNr int) (*Image, error) {
 
 	case filter.Flate, filter.CCITTFax:
 		// If color space is CMYK then write .tif else write .png
-		if err := decodeStream(imageDict); err != nil {
+		if err := imageDict.Decode(); err != nil {
 			return nil, err
 		}
 
@@ -119,7 +119,8 @@ func (ctx *Context) ExtractImage(objNr int) (*Image, error) {
 		return nil, nil
 	}
 
-	return RenderImage(ctx.XRefTable, imageObj, objNr)
+	resourceName := imageObj.ResourceNames[0]
+	return RenderImage(ctx.XRefTable, imageDict, resourceName, objNr)
 }
 
 // ExtractPageImages extracts all images used by pageNr.
@@ -191,7 +192,7 @@ func (ctx *Context) ExtractFont(objNr int) (*Font, error) {
 	case "TrueType":
 		// ttf ... true type file
 		// ttc ... true type collection
-		sd, err := ctx.DereferenceStreamDict(*ir)
+		sd, _, err := ctx.DereferenceStreamDict(*ir)
 		if err != nil {
 			return nil, err
 		}
@@ -200,7 +201,7 @@ func (ctx *Context) ExtractFont(objNr int) (*Font, error) {
 		}
 
 		// Decode streamDict if used filter is supported only.
-		err = decodeStream(sd)
+		err = sd.Decode()
 		if err == filter.ErrUnsupportedFilter {
 			return nil, nil
 		}
@@ -235,13 +236,17 @@ func (ctx *Context) ExtractPageFonts(pageNr int) ([]Font, error) {
 
 // ExtractPage extracts pageNr into a new single page context.
 func (ctx *Context) ExtractPage(pageNr int) (*Context, error) {
+	return ctx.ExtractPages([]int{pageNr}, false)
+}
+
+// ExtractPages extracts pageNrs into a new single page context.
+func (ctx *Context) ExtractPages(pageNrs []int, usePgCache bool) (*Context, error) {
 	ctxDest, err := CreateContextWithXRefTable(nil, PaperSize["A4"])
 	if err != nil {
 		return nil, err
 	}
 
-	usePgCache := false
-	if err := AddPages(ctx, ctxDest, []int{pageNr}, usePgCache); err != nil {
+	if err := AddPages(ctx, ctxDest, pageNrs, usePgCache); err != nil {
 		return nil, err
 	}
 
@@ -256,7 +261,7 @@ func (ctx *Context) ExtractPageContent(pageNr int) (io.Reader, error) {
 		return nil, err
 	}
 	bb, err := ctx.PageContent(d)
-	if err != nil {
+	if err != nil && err != errNoContent {
 		return nil, err
 	}
 	return bytes.NewReader(bb), nil
@@ -270,6 +275,36 @@ type Metadata struct {
 	ParentType  string // container dict type
 }
 
+func extractMetadataFromDict(ctx *Context, d Dict, parentObjNr int) (*Metadata, error) {
+	o, found := d.Find("Metadata")
+	if !found || o == nil {
+		return nil, nil
+	}
+	sd, _, err := ctx.DereferenceStreamDict(o)
+	if err != nil {
+		return nil, err
+	}
+	if sd == nil {
+		return nil, nil
+	}
+	// Get metadata dict object number.
+	ir, _ := o.(IndirectRef)
+	mdObjNr := ir.ObjectNumber.Value()
+	// Get container dict type.
+	dt := "unknown"
+	if d.Type() != nil {
+		dt = *d.Type()
+	}
+	// Decode streamDict for supported filters only.
+	if err = sd.Decode(); err == filter.ErrUnsupportedFilter {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &Metadata{bytes.NewReader(sd.Content), mdObjNr, parentObjNr, dt}, nil
+}
+
 // ExtractMetadata returns all metadata of ctx.
 func (ctx *Context) ExtractMetadata() ([]Metadata, error) {
 	mm := []Metadata{}
@@ -279,64 +314,24 @@ func (ctx *Context) ExtractMetadata() ([]Metadata, error) {
 		}
 		switch d := v.Object.(type) {
 		case Dict:
-			o, found := d.Find("Metadata")
-			if !found || o == nil {
-				continue
-			}
-			sd, err := ctx.DereferenceStreamDict(o)
+			md, err := extractMetadataFromDict(ctx, d, k)
 			if err != nil {
 				return nil, err
 			}
-			if sd == nil {
+			if md == nil {
 				continue
 			}
-			// Get metadata dict object number.
-			ir, _ := o.(IndirectRef)
-			mdObjNr := ir.ObjectNumber.Value()
-			// Get container dict type.
-			dt := "unknown"
-			if d.Type() != nil {
-				dt = *d.Type()
-			}
-			// Decode streamDict for supported filters only.
-			if err = decodeStream(sd); err == filter.ErrUnsupportedFilter {
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			md := Metadata{bytes.NewReader(sd.Content), mdObjNr, k, dt}
-			mm = append(mm, md)
+			mm = append(mm, *md)
 
 		case StreamDict:
-			o, found := d.Find("Metadata")
-			if !found || o == nil {
-				continue
-			}
-			sd, err := ctx.DereferenceStreamDict(o)
+			md, err := extractMetadataFromDict(ctx, d.Dict, k)
 			if err != nil {
 				return nil, err
 			}
-			if sd == nil {
+			if md == nil {
 				continue
 			}
-			// Get metadata dict object number.
-			ir, _ := o.(IndirectRef)
-			mdObjNr := ir.ObjectNumber.Value()
-			// Get container dict type.
-			dt := "unknown"
-			if d.Type() != nil {
-				dt = *d.Type()
-			}
-			// Decode streamDict for supported filters only.
-			if err = decodeStream(sd); err == filter.ErrUnsupportedFilter {
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			md := Metadata{bytes.NewReader(sd.Content), mdObjNr, k, dt}
-			mm = append(mm, md)
+			mm = append(mm, *md)
 		}
 	}
 	return mm, nil

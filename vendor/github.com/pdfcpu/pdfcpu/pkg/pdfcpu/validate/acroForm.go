@@ -184,8 +184,62 @@ func validateAcroFieldDictEntries(xRefTable *pdf.XRefTable, d pdf.Dict, terminal
 	return outFieldType, nil
 }
 
-func validateAcroFieldDict(xRefTable *pdf.XRefTable, ir pdf.IndirectRef, inFieldType *pdf.Name) error {
+func validateAcroFieldParts(xRefTable *pdf.XRefTable, d pdf.Dict, inFieldType *pdf.Name) error {
+	// dict represents a terminal field and must have Subtype "Widget"
+	if _, err := validateNameEntry(xRefTable, d, "acroFieldDict", "Subtype", REQUIRED, pdf.V10, func(s string) bool { return s == "Widget" }); err != nil {
+		return err
+	}
 
+	// Validate field dict entries.
+	if _, err := validateAcroFieldDictEntries(xRefTable, d, true, inFieldType); err != nil {
+		return err
+	}
+
+	// Validate widget annotation - Validation of AA redundant because of merged acrofield with widget annotation.
+	_, err := validateAnnotationDict(xRefTable, d)
+	return err
+}
+
+func validateAcroFieldKid(xRefTable *pdf.XRefTable, d pdf.Dict, o pdf.Object, inFieldType *pdf.Name) error {
+	var err error
+	// dict represents a non terminal field.
+	if d.Subtype() != nil && *d.Subtype() == "Widget" {
+		return errors.New("pdfcpu: validateAcroFieldKid: non terminal field can not be widget annotation")
+	}
+
+	// Validate field entries.
+	var xInFieldType *pdf.Name
+	if xInFieldType, err = validateAcroFieldDictEntries(xRefTable, d, false, inFieldType); err != nil {
+		return err
+	}
+
+	// Recurse over kids.
+	a, err := xRefTable.DereferenceArray(o)
+	if err != nil || a == nil {
+		return err
+	}
+
+	for _, value := range a {
+		ir, ok := value.(pdf.IndirectRef)
+		if !ok {
+			return errors.New("pdfcpu: validateAcroFieldKid: corrupt kids array: entries must be indirect reference")
+		}
+		valid, err := xRefTable.IsValid(ir)
+		if err != nil {
+			return err
+		}
+
+		if !valid {
+			if err = validateAcroFieldDict(xRefTable, ir, xInFieldType); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func validateAcroFieldDict(xRefTable *pdf.XRefTable, ir pdf.IndirectRef, inFieldType *pdf.Name) error {
 	d, err := xRefTable.DereferenceDict(ir)
 	if err != nil || d == nil {
 		return err
@@ -197,55 +251,15 @@ func validateAcroFieldDict(xRefTable *pdf.XRefTable, ir pdf.IndirectRef, inField
 		}
 	}
 
+	if err := xRefTable.SetValid(ir); err != nil {
+		return err
+	}
+
 	if o, ok := d.Find("Kids"); ok {
-
-		// dict represents a non terminal field.
-		if d.Subtype() != nil && *d.Subtype() == "Widget" {
-			return errors.New("pdfcpu: validateAcroFieldDict: non terminal field can not be widget annotation")
-		}
-
-		// Validate field entries.
-		var xInFieldType *pdf.Name
-		if xInFieldType, err = validateAcroFieldDictEntries(xRefTable, d, false, inFieldType); err != nil {
-			return err
-		}
-
-		// Recurse over kids.
-		a, err := xRefTable.DereferenceArray(o)
-		if err != nil || a == nil {
-			return err
-		}
-
-		for _, value := range a {
-
-			ir, ok := value.(pdf.IndirectRef)
-			if !ok {
-				return errors.New("pdfcpu: validateAcroFieldDict: corrupt kids array: entries must be indirect reference")
-			}
-
-			if err = validateAcroFieldDict(xRefTable, ir, xInFieldType); err != nil {
-				return err
-			}
-
-		}
-
-		return nil
+		return validateAcroFieldKid(xRefTable, d, o, inFieldType)
 	}
 
-	// dict represents a terminal field and must have Subtype "Widget"
-	if _, err = validateNameEntry(xRefTable, d, "acroFieldDict", "Subtype", REQUIRED, pdf.V10, func(s string) bool { return s == "Widget" }); err != nil {
-		return err
-	}
-
-	// Validate field dict entries.
-	if _, err = validateAcroFieldDictEntries(xRefTable, d, true, inFieldType); err != nil {
-		return err
-	}
-
-	// Validate widget annotation - Validation of AA redundant because of merged acrofield with widget annotation.
-	_, err = validateAnnotationDict(xRefTable, d)
-
-	return err
+	return validateAcroFieldParts(xRefTable, d, inFieldType)
 }
 
 func validateAcroFormFields(xRefTable *pdf.XRefTable, o pdf.Object) error {
@@ -262,9 +276,15 @@ func validateAcroFormFields(xRefTable *pdf.XRefTable, o pdf.Object) error {
 			return errors.New("pdfcpu: validateAcroFormFields: corrupt form field array entry")
 		}
 
-		err = validateAcroFieldDict(xRefTable, ir, nil)
+		valid, err := xRefTable.IsValid(ir)
 		if err != nil {
 			return err
+		}
+
+		if !valid {
+			if validateAcroFieldDict(xRefTable, ir, nil); err != nil {
+				return err
+			}
 		}
 
 	}

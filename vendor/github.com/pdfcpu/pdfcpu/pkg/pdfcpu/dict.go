@@ -42,7 +42,10 @@ func (d Dict) Len() int {
 func (d Dict) Clone() Object {
 	d1 := NewDict()
 	for k, v := range d {
-		d1.Insert(k, v.Clone())
+		if v != nil {
+			v = v.Clone()
+		}
+		d1.Insert(k, v)
 	}
 	return d1
 }
@@ -91,14 +94,11 @@ func (d Dict) Find(key string) (value Object, found bool) {
 
 // Delete deletes the Object for given key.
 func (d Dict) Delete(key string) (value Object) {
-
 	value, found := d.Find(key)
 	if !found {
 		return nil
 	}
-
 	delete(d, key)
-
 	return value
 }
 

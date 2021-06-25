@@ -87,7 +87,7 @@ func Write(ctx *Context) (err error) {
 	log.Write.Printf("offset after writeRootObject: %d\n", ctx.Write.Offset)
 
 	// Write document information dictionary.
-	if err = writeDocumentInfoDict(ctx); err != nil {
+	if err = ctx.writeDocumentInfoDict(); err != nil {
 		return err
 	}
 
@@ -176,7 +176,7 @@ func ensureFileID(ctx *Context) error {
 
 func ensureInfoDictAndFileID(ctx *Context) error {
 
-	if err := ensureInfoDict(ctx); err != nil {
+	if err := ctx.ensureInfoDict(); err != nil {
 		return err
 	}
 
@@ -523,9 +523,9 @@ func sortedWritableKeys(ctx *Context) []int {
 // After inserting the last object write the cross reference table to disk.
 func writeXRefTable(ctx *Context) error {
 
-	if err := ctx.EnsureValidFreeList(); err != nil {
-		return err
-	}
+	//if err := ctx.EnsureValidFreeList(); err != nil {
+	//	return err
+	//}
 
 	keys := sortedWritableKeys(ctx)
 
@@ -719,13 +719,15 @@ func writeXRefStream(ctx *Context) error {
 	}
 
 	// After the last insert of an object.
-	if err = xRefTable.EnsureValidFreeList(); err != nil {
-		return err
-	}
+	//if err = xRefTable.EnsureValidFreeList(); err != nil {
+	//	return err
+	//}
 
 	xRefStreamDict.Insert("Size", Integer(*xRefTable.Size))
 
+	// Include xref stream dict obj within xref stream dict.
 	offset := ctx.Write.Offset
+	ctx.Write.SetWriteOffset(objNumber)
 
 	i2Base := int64(*ctx.Size)
 	if offset > i2Base {
@@ -757,7 +759,7 @@ func writeXRefStream(ctx *Context) error {
 	xRefStreamDict.Insert("Index", *indArr)
 
 	// Encode xRefStreamDict.Content -> xRefStreamDict.Raw
-	if err = encodeStream(&xRefStreamDict.StreamDict); err != nil {
+	if err = xRefStreamDict.StreamDict.Encode(); err != nil {
 		return err
 	}
 
@@ -768,10 +770,6 @@ func writeXRefStream(ctx *Context) error {
 	}
 
 	w := ctx.Write
-
-	if err = w.WriteEol(); err != nil {
-		return err
-	}
 
 	if _, err = w.WriteString("startxref"); err != nil {
 		return err

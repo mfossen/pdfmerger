@@ -54,25 +54,33 @@ func (m importParamMap) Handle(paramPrefix, paramValueStr string, imp *Import) e
 }
 
 var impParamMap = importParamMap{
-	"dimensions":  parseDimensionsImp,
-	"dpi":         parseDPI,
-	"formsize":    parsePageFormatImp,
-	"papersize":   parsePageFormatImp,
-	"position":    parsePositionAnchorImp,
-	"offset":      parsePositionOffsetImp,
-	"scalefactor": parseScaleFactorImp,
+	"dimensions":      parseDimensionsImp,
+	"dpi":             parseDPI,
+	"formsize":        parsePageFormatImp,
+	"papersize":       parsePageFormatImp,
+	"position":        parsePositionAnchorImp,
+	"offset":          parsePositionOffsetImp,
+	"scalefactor":     parseScaleFactorImp,
+	"gray":            parseGray,
+	"sepia":           parseSepia,
+	"backgroundcolor": parseImportBackgroundColor,
+	"bgcolor":         parseImportBackgroundColor,
 }
 
 // Import represents the command details for the command "ImportImage".
 type Import struct {
-	PageDim  *Dim    // page dimensions in user units.
-	PageSize string  // one of A0,A1,A2,A3,A4(=default),A5,A6,A7,A8,Letter,Legal,Ledger,Tabloid,Executive,ANSIC,ANSID,ANSIE.
-	UserDim  bool    // true if one of dimensions or paperSize provided overriding the default.
-	DPI      int     // destination resolution to apply in dots per inch.
-	Pos      anchor  // position anchor, one of tl,tc,tr,l,c,r,bl,bc,br,full.
-	Dx, Dy   int     // anchor offset.
-	Scale    float64 // relative scale factor. 0 <= x <= 1
-	ScaleAbs bool    // true for absolute scaling.
+	PageDim  *Dim        // page dimensions in display unit.
+	PageSize string      // one of A0,A1,A2,A3,A4(=default),A5,A6,A7,A8,Letter,Legal,Ledger,Tabloid,Executive,ANSIC,ANSID,ANSIE.
+	UserDim  bool        // true if one of dimensions or paperSize provided overriding the default.
+	DPI      int         // destination resolution to apply in dots per inch.
+	Pos      anchor      // position anchor, one of tl,tc,tr,l,c,r,bl,bc,br,full.
+	Dx, Dy   int         // anchor offset.
+	Scale    float64     // relative scale factor. 0 <= x <= 1
+	ScaleAbs bool        // true for absolute scaling.
+	InpUnit  DisplayUnit // input display unit.
+	Gray     bool        // true for rendering in Gray.
+	Sepia    bool
+	BgColor  *SimpleColor // background color
 }
 
 // DefaultImportConfig returns the default configuration.
@@ -82,6 +90,7 @@ func DefaultImportConfig() *Import {
 		PageSize: "A4",
 		Pos:      Full,
 		Scale:    0.5,
+		InpUnit:  POINTS,
 	}
 }
 
@@ -134,24 +143,24 @@ func parsePageFormatImp(s string, imp *Import) (err error) {
 	return err
 }
 
-func parsePageDim(v string) (*Dim, string, error) {
+func parsePageDim(v string, u DisplayUnit) (*Dim, string, error) {
 
 	ss := strings.Split(v, " ")
 	if len(ss) != 2 {
 		return nil, v, errors.Errorf("pdfcpu: illegal dimension string: need 2 positive values, %s\n", v)
 	}
 
-	w, err := strconv.Atoi(ss[0])
+	w, err := strconv.ParseFloat(ss[0], 64)
 	if err != nil || w <= 0 {
 		return nil, v, errors.Errorf("pdfcpu: dimension X must be a positiv numeric value: %s\n", ss[0])
 	}
 
-	h, err := strconv.Atoi(ss[1])
+	h, err := strconv.ParseFloat(ss[1], 64)
 	if err != nil || h <= 0 {
 		return nil, v, errors.Errorf("pdfcpu: dimension Y must be a positiv numeric value: %s\n", ss[1])
 	}
 
-	d := Dim{float64(w), float64(h)}
+	d := Dim{toUserSpace(w, u), toUserSpace(h, u)}
 
 	return &d, "", nil
 }
@@ -160,7 +169,7 @@ func parseDimensionsImp(s string, imp *Import) (err error) {
 	if imp.UserDim {
 		return errors.New("pdfcpu: only one of formsize(papersize) or dimensions allowed")
 	}
-	imp.PageDim, imp.PageSize, err = parsePageDim(s)
+	imp.PageDim, imp.PageSize, err = parsePageDim(s, imp.InpUnit)
 	imp.UserDim = true
 	return err
 }
@@ -220,54 +229,62 @@ const (
 	Full // special case, no anchor needed, imageSize = pageSize
 )
 
-func parsePositionAnchorImp(s string, imp *Import) error {
-
+func parsePositionAnchor(s string) (anchor, error) {
+	var a anchor
 	switch s {
 	case "tl":
-		imp.Pos = TopLeft
+		a = TopLeft
 	case "tc":
-		imp.Pos = TopCenter
+		a = TopCenter
 	case "tr":
-		imp.Pos = TopRight
+		a = TopRight
 	case "l":
-		imp.Pos = Left
+		a = Left
 	case "c":
-		imp.Pos = Center
+		a = Center
 	case "r":
-		imp.Pos = Right
+		a = Right
 	case "bl":
-		imp.Pos = BottomLeft
+		a = BottomLeft
 	case "bc":
-		imp.Pos = BottomCenter
+		a = BottomCenter
 	case "br":
-		imp.Pos = BottomRight
+		a = BottomRight
 	case "full":
-		imp.Pos = Full
+		a = Full
 	default:
-		return errors.Errorf("pdfcpu: unknown position anchor: %s", s)
+		return a, errors.Errorf("pdfcpu: unknown position anchor: %s", s)
 	}
+	return a, nil
+}
 
+func parsePositionAnchorImp(s string, imp *Import) error {
+	a, err := parsePositionAnchor(s)
+	if err != nil {
+		return err
+	}
+	imp.Pos = a
 	return nil
 }
 
 func parsePositionOffsetImp(s string, imp *Import) error {
-
-	var err error
 
 	d := strings.Split(s, " ")
 	if len(d) != 2 {
 		return errors.Errorf("pdfcpu: illegal position offset string: need 2 numeric values, %s\n", s)
 	}
 
-	imp.Dx, err = strconv.Atoi(d[0])
+	f, err := strconv.ParseFloat(d[0], 64)
 	if err != nil {
 		return err
 	}
+	imp.Dx = int(toUserSpace(f, imp.InpUnit))
 
-	imp.Dy, err = strconv.Atoi(d[1])
+	f, err = strconv.ParseFloat(d[1], 64)
 	if err != nil {
 		return err
 	}
+	imp.Dy = int(toUserSpace(f, imp.InpUnit))
 
 	return nil
 }
@@ -282,14 +299,50 @@ func parseDPI(s string, imp *Import) (err error) {
 	return err
 }
 
+func parseGray(s string, imp *Import) error {
+	switch strings.ToLower(s) {
+	case "on", "true", "t":
+		imp.Gray = true
+	case "off", "false", "f":
+		imp.Gray = false
+	default:
+		return errors.New("pdfcpu: import gray, please provide one of: on/off true/false")
+	}
+
+	return nil
+}
+
+func parseSepia(s string, imp *Import) error {
+	switch strings.ToLower(s) {
+	case "on", "true", "t":
+		imp.Sepia = true
+	case "off", "false", "f":
+		imp.Sepia = false
+	default:
+		return errors.New("pdfcpu: import gray, please provide one of: on/off true/false")
+	}
+
+	return nil
+}
+
+func parseImportBackgroundColor(s string, imp *Import) error {
+	c, err := parseColor(s)
+	if err != nil {
+		return err
+	}
+	imp.BgColor = &c
+	return nil
+}
+
 // ParseImportDetails parses an Import command string into an internal structure.
-func ParseImportDetails(s string) (*Import, error) {
+func ParseImportDetails(s string, u DisplayUnit) (*Import, error) {
 
 	if s == "" {
 		return nil, nil
 	}
 
 	imp := DefaultImportConfig()
+	imp.InpUnit = u
 
 	ss := strings.Split(s, ",")
 
@@ -370,9 +423,13 @@ func importImagePDFBytes(wr io.Writer, pageDim *Dim, imgWidth, imgHeight float64
 	vpw := float64(pageDim.Width)
 	vph := float64(pageDim.Height)
 
+	bb := RectForDim(vpw, vph)
+	if imp.BgColor != nil {
+		FillRectStacked(wr, bb, *imp.BgColor)
+	}
+
 	if imp.Pos == Full {
 		// The bounding box equals the page dimensions.
-		bb := types.NewRectangle(0, 0, vpw, vph)
 		bb.UR.X = bb.Width()
 		bb.UR.Y = bb.UR.X / bb.AspectRatio()
 		fmt.Fprintf(wr, "q %f 0 0 %f 0 0 cm /Im0 Do Q", bb.Width(), bb.Height())
@@ -385,7 +442,7 @@ func importImagePDFBytes(wr io.Writer, pageDim *Dim, imgWidth, imgHeight float64
 		imgHeight *= float64(72) / float64(imp.DPI)
 	}
 
-	bb := types.NewRectangle(0, 0, imgWidth, imgHeight)
+	bb = RectForDim(imgWidth, imgHeight)
 	ar := bb.AspectRatio()
 
 	if imp.ScaleAbs {
@@ -420,7 +477,7 @@ func importImagePDFBytes(wr io.Writer, pageDim *Dim, imgWidth, imgHeight float64
 func NewPageForImage(xRefTable *XRefTable, r io.Reader, parentIndRef *IndirectRef, imp *Import) (*IndirectRef, error) {
 
 	// create image dict.
-	imgIndRef, w, h, err := createImageResource(xRefTable, r)
+	imgIndRef, w, h, err := createImageResource(xRefTable, r, imp.Gray, imp.Sepia)
 	if err != nil {
 		return nil, err
 	}
@@ -448,7 +505,7 @@ func NewPageForImage(xRefTable *XRefTable, r io.Reader, parentIndRef *IndirectRe
 	var buf bytes.Buffer
 	importImagePDFBytes(&buf, dim, float64(w), float64(h), imp)
 	sd, _ := xRefTable.NewStreamDictForBuf(buf.Bytes())
-	if err = encodeStream(sd); err != nil {
+	if err = sd.Encode(); err != nil {
 		return nil, err
 	}
 

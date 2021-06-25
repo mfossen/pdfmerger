@@ -37,7 +37,7 @@ func (xRefTable *XRefTable) PageContent(d Dict) ([]byte, error) {
 
 	case StreamDict:
 		// no further processing.
-		err := decodeStream(&o)
+		err := o.Decode()
 		if err == filter.ErrUnsupportedFilter {
 			return nil, errors.New("pdfcpu: unsupported filter: unable to decode content")
 		}
@@ -53,14 +53,14 @@ func (xRefTable *XRefTable) PageContent(d Dict) ([]byte, error) {
 			if o == nil {
 				continue
 			}
-			o, err := xRefTable.DereferenceStreamDict(o)
+			o, _, err := xRefTable.DereferenceStreamDict(o)
 			if err != nil {
 				return nil, err
 			}
 			if o == nil {
 				continue
 			}
-			err = decodeStream(o)
+			err = o.Decode()
 			if err == filter.ErrUnsupportedFilter {
 				return nil, errors.New("pdfcpu: unsupported filter: unable to decode content")
 			}
@@ -79,6 +79,19 @@ func (xRefTable *XRefTable) PageContent(d Dict) ([]byte, error) {
 	}
 
 	return bb, nil
+}
+
+func migratePageDict(d Dict, ctx, ctxDest *Context, migrated map[int]int) error {
+	var err error
+	for k, v := range d {
+		if k == "Parent" {
+			continue
+		}
+		if d[k], err = migrateObject(v, ctx, ctxDest, migrated); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // AddPages adds pages and corresponding resources from otherXRefTable to xRefTable.
@@ -129,17 +142,9 @@ func AddPages(ctx, ctxDest *Context, pages []int, usePgCache bool) error {
 		d["Parent"] = *pagesIndRef
 
 		// Migrate external page dict into ctxDest.
-		for k, v := range d {
-			if k == "Parent" {
-				continue
-			}
-			//fmt.Printf("key=%s\n", k)
-			if v, err = migrateObject(v, ctx, ctxDest, migrated); err != nil {
-				return err
-			}
-			d[k] = v
+		if err := migratePageDict(d, ctx, ctxDest, migrated); err != nil {
+			return err
 		}
-		//fmt.Printf("migrresDict after: \n%s", d)
 
 		// Handle inherited page attributes.
 		d["MediaBox"] = inhPAttrs.mediaBox.Array()

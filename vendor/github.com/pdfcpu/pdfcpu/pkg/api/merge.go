@@ -23,6 +23,7 @@ import (
 
 	"github.com/pdfcpu/pdfcpu/pkg/log"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
+	"github.com/pkg/errors"
 )
 
 // appendTo appends inFile to ctxDest's page tree.
@@ -44,6 +45,12 @@ type ReadSeekerCloser interface {
 
 // Merge merges a sequence of PDF streams and writes the result to w.
 func Merge(rsc []io.ReadSeeker, w io.Writer, conf *pdfcpu.Configuration) error {
+	if rsc == nil {
+		return errors.New("pdfcpu: Merge: Please provide rsc")
+	}
+	if w == nil {
+		return errors.New("pdfcpu: Merge: Please provide w")
+	}
 	if conf == nil {
 		conf = pdfcpu.NewDefaultConfiguration()
 	}
@@ -120,6 +127,14 @@ func MergeCreateFile(inFiles []string, outFile string, conf *pdfcpu.Configuratio
 	return Merge(rs, f, conf)
 }
 
+func prepareReadSeekers(ff []*os.File) []io.ReadSeeker {
+	rss := make([]io.ReadSeeker, len(ff))
+	for i, f := range ff {
+		rss[i] = f
+	}
+	return rss
+}
+
 // MergeAppendFile merges a sequence of inFiles and writes the result to outFile.
 // This operation corresponds to file concatenation in the order specified by inFiles.
 // If outFile already exists, inFiles will be appended.
@@ -179,10 +194,5 @@ func MergeAppendFile(inFiles []string, outFile string, conf *pdfcpu.Configuratio
 		}
 	}()
 
-	rss := make([]io.ReadSeeker, len(ff))
-	for i, f := range ff {
-		rss[i] = f
-	}
-
-	return Merge(rss, f2, conf)
+	return Merge(prepareReadSeekers(ff), f2, conf)
 }

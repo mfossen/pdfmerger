@@ -206,7 +206,11 @@ func validateFontDescriptorPart2(xRefTable *pdf.XRefTable, d pdf.Dict, dictName,
 		return err
 	}
 
-	_, err = validateNumberEntry(xRefTable, d, dictName, "StemV", fontDictType != "Type3", pdf.V10, nil)
+	required := fontDictType != "Type3"
+	if xRefTable.ValidationMode == pdf.ValidationRelaxed {
+		required = false
+	}
+	_, err = validateNumberEntry(xRefTable, d, dictName, "StemV", required, pdf.V10, nil)
 	if err != nil {
 		return err
 	}
@@ -344,12 +348,17 @@ func validateFontEncoding(xRefTable *pdf.XRefTable, d pdf.Dict, dictName string,
 		return err
 	}
 
+	encodings := []string{"MacRomanEncoding", "MacExpertEncoding", "WinAnsiEncoding"}
+	if xRefTable.ValidationMode == pdf.ValidationRelaxed {
+		encodings = append(encodings, "StandardEncoding")
+	}
+
 	switch o := o.(type) {
 
 	case pdf.Name:
 		s := o.Value()
 		validateFontEncodingName := func(s string) bool {
-			return pdf.MemberOf(s, []string{"MacRomanEncoding", "MacExpertEncoding", "WinAnsiEncoding"})
+			return pdf.MemberOf(s, encodings)
 		}
 		if !validateFontEncodingName(s) {
 			return errors.Errorf("validateFontEncoding: invalid Encoding name: %s\n", s)
@@ -665,9 +674,10 @@ func validateType1FontDict(xRefTable *pdf.XRefTable, d pdf.Dict) error {
 		return err
 	}
 
-	required := xRefTable.Version() >= pdf.V15 || !validateStandardType1Font((*fontName).Value())
+	fn := (*fontName).Value()
+	required := xRefTable.Version() >= pdf.V15 || !validateStandardType1Font(fn)
 	if xRefTable.ValidationMode == pdf.ValidationRelaxed {
-		required = !validateStandardType1Font((*fontName).Value())
+		required = !validateStandardType1Font(fn) && fn != "Arial"
 	}
 	// FirstChar,  required except for standard 14 fonts. since 1.5 always required, integer
 	fc, err := validateIntegerEntry(xRefTable, d, dictName, "FirstChar", required, pdf.V10, nil)
@@ -723,7 +733,7 @@ func validateCharProcsDict(xRefTable *pdf.XRefTable, d pdf.Dict, dictName string
 
 	for _, v := range d1 {
 
-		_, err = xRefTable.DereferenceStreamDict(v)
+		_, _, err = xRefTable.DereferenceStreamDict(v)
 		if err != nil {
 			return err
 		}

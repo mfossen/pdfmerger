@@ -21,7 +21,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"io/ioutil"
+	"io"
 	"os"
 
 	"github.com/hhrutter/tiff"
@@ -173,8 +173,7 @@ func streamBytes(sd *StreamDict) ([]byte, error) {
 	fpl := sd.FilterPipeline
 	if fpl == nil {
 		log.Info.Printf("streamBytes: no filter pipeline\n")
-		err := decodeStream(sd)
-		if err != nil {
+		if err := sd.Decode(); err != nil {
 			return nil, err
 		}
 		return sd.Content, nil
@@ -189,8 +188,7 @@ func streamBytes(sd *StreamDict) ([]byte, error) {
 	switch fpl[0].Name {
 
 	case filter.Flate:
-		err := decodeStream(sd)
-		if err != nil {
+		if err := sd.Decode(); err != nil {
 			return nil, err
 		}
 
@@ -215,7 +213,7 @@ func softMask(xRefTable *XRefTable, d *StreamDict, w, h, objNr int) ([]byte, err
 
 	// Soft mask present.
 
-	sd, err := xRefTable.DereferenceStreamDict(o)
+	sd, _, err := xRefTable.DereferenceStreamDict(o)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +396,7 @@ func renderICCBased(xRefTable *XRefTable, im *PDFImage, resourceName string, cs 
 	//  Any ICC profile >= ICC.1:2004:10 is sufficient for any PDF version <= 1.7
 	//  If the embedded ICC profile version is newer than the one used by the Reader, substitute with Alternate color space.
 
-	iccProfileStream, _ := xRefTable.DereferenceStreamDict(cs[1])
+	iccProfileStream, _, _ := xRefTable.DereferenceStreamDict(cs[1])
 
 	b := im.sd.Content
 
@@ -541,7 +539,7 @@ func renderIndexedArrayCS(xRefTable *XRefTable, im *PDFImage, resourceName strin
 
 	case ICCBasedCS:
 
-		iccProfileStream, _ := xRefTable.DereferenceStreamDict(csa[1])
+		iccProfileStream, _, _ := xRefTable.DereferenceStreamDict(csa[1])
 
 		// 1,3 or 4 color components.
 		n := *iccProfileStream.IntEntry("N")
@@ -634,10 +632,7 @@ func renderIndexed(xRefTable *XRefTable, im *PDFImage, resourceName string, cs A
 	return nil, nil
 }
 
-func renderFlateEncodedImage(xRefTable *XRefTable, io *ImageObject, objNr int) (*Image, error) {
-
-	sd := io.ImageDict
-	resourceName := io.ResourceNames[0]
+func renderFlateEncodedImage(xRefTable *XRefTable, sd *StreamDict, resourceName string, objNr int) (*Image, error) {
 
 	pdfImage, err := pdfImage(xRefTable, sd, objNr)
 	if err != nil {
@@ -691,108 +686,45 @@ func renderFlateEncodedImage(xRefTable *XRefTable, io *ImageObject, objNr int) (
 }
 
 // RenderImage returns a reader for the encoded image bytes.
-func RenderImage(xRefTable *XRefTable, io *ImageObject, objNr int) (*Image, error) {
-
-	sd := io.ImageDict
-	resourceName := io.ResourceNames[0]
+// for extract
+func RenderImage(xRefTable *XRefTable, sd *StreamDict, resourceName string, objNr int) (*Image, error) {
 
 	switch sd.FilterPipeline[0].Name {
 
 	case filter.Flate, filter.CCITTFax:
 		// If color space is CMYK then write .tif else write .png
-		return renderFlateEncodedImage(xRefTable, io, objNr)
+		return renderFlateEncodedImage(xRefTable, sd, resourceName, objNr)
 
 	case filter.DCT:
+		// Write original stream data.
 		return &Image{bytes.NewReader(sd.Raw), resourceName, "jpg"}, nil
 
 	case filter.JPX:
+		// Write original stream data.
 		return &Image{bytes.NewReader(sd.Raw), resourceName, "jpx"}, nil
 	}
 
 	return nil, nil
 }
 
-func writeFlateEncodedImage(xRefTable *XRefTable, filename string, sd *StreamDict, objNr int) (string, error) {
-
-	pdfImage, err := pdfImage(xRefTable, sd, objNr)
-	if err != nil {
-		return "", err
-	}
-
-	o, err := xRefTable.DereferenceDictEntry(sd.Dict, "ColorSpace")
-	if err != nil {
-		return "", err
-	}
-
-	var img *Image
-
-	switch cs := o.(type) {
-
-	case Name:
-		switch cs {
-
-		case DeviceGrayCS:
-			img, err = renderDeviceGrayToPNG(pdfImage, filename)
-
-		case DeviceRGBCS:
-			img, err = renderDeviceRGBToPNG(pdfImage, filename)
-
-		case DeviceCMYKCS:
-			img, err = renderDeviceCMYKToTIFF(pdfImage, filename)
-
-		default:
-			log.Info.Printf("renderFlateEncodedImage: objNr=%d, unsupported name colorspace %s\n", objNr, cs.String())
-		}
-
-	case Array:
-		csn, _ := cs[0].(Name)
-
-		switch csn {
-
-		case CalRGBCS:
-			img, err = renderCalRGBToPNG(pdfImage, filename)
-
-		case ICCBasedCS:
-			img, err = renderICCBased(xRefTable, pdfImage, filename, cs)
-
-		case IndexedCS:
-			img, err = renderIndexed(xRefTable, pdfImage, filename, cs)
-
-		default:
-			log.Info.Printf("renderFlateEncodedImage: objNr=%d, unsupported array colorspace %s\n", objNr, csn)
-		}
-
-	}
-
-	if img == nil {
-		return "", nil
-	}
-
-	bb, err := ioutil.ReadAll(img)
-	if err != nil {
-		return "", err
-	}
-
-	if err := ioutil.WriteFile(filename, bb, os.ModePerm); err != nil {
-		return "", err
-	}
-
-	return filename, nil
-}
-
 // WriteImage writes a PDF image object to disk.
-func WriteImage(xRefTable *XRefTable, filename string, sd *StreamDict, objNr int) (string, error) {
-	switch sd.FilterPipeline[0].Name {
+func WriteImage(xRefTable *XRefTable, fileName string, sd *StreamDict, objNr int) (string, error) {
 
-	case filter.Flate, filter.CCITTFax:
-		return writeFlateEncodedImage(xRefTable, filename, sd, objNr)
-
-	case filter.DCT:
-		return filename + ".jpx", ioutil.WriteFile(filename, sd.Raw, os.ModePerm)
-
-	case filter.JPX:
-		return filename + ".jpx", ioutil.WriteFile(filename, sd.Raw, os.ModePerm)
+	img, err := RenderImage(xRefTable, sd, fileName, objNr)
+	if err != nil {
+		return "", err
 	}
 
-	return "", nil
+	w, err := os.Create(fileName)
+	if err != nil {
+		return "", err
+	}
+
+	if _, err = io.Copy(w, img); err != nil {
+		return "", err
+	}
+
+	err = w.Close()
+
+	return fileName, err
 }

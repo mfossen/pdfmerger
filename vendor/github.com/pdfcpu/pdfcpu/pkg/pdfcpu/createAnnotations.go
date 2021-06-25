@@ -17,7 +17,6 @@ limitations under the License.
 package pdfcpu
 
 import (
-	"path"
 	"path/filepath"
 	"time"
 )
@@ -522,7 +521,7 @@ func createPopupAnnotation(xRefTable *XRefTable, pageIndRef IndirectRef, annotRe
 
 func createFileAttachmentAnnotation(xRefTable *XRefTable, pageIndRef IndirectRef, annotRect Array) (*IndirectRef, error) {
 
-	// macOS starts up iTunes for FileAttachments.
+	// macOS starts up iTunes for audio file attachments.
 
 	fileName := testAudioFileWAV
 
@@ -531,7 +530,8 @@ func createFileAttachmentAnnotation(xRefTable *XRefTable, pageIndRef IndirectRef
 		return nil, err
 	}
 
-	fileSpecDict, err := xRefTable.NewFileSpecDict(path.Base(fileName), "attached by pdfcpu", *ir)
+	fn := filepath.Base(fileName)
+	fileSpecDict, err := xRefTable.NewFileSpecDict(fn, encodeUTF16String(fn), "attached by pdfcpu", *ir)
 	if err != nil {
 		return nil, err
 	}
@@ -570,7 +570,8 @@ func createFileSpecDict(xRefTable *XRefTable, fileName string) (Dict, error) {
 	if err != nil {
 		return nil, err
 	}
-	return xRefTable.NewFileSpecDict(path.Base(fileName), "attached by pdfcpu", *ir)
+	fn := filepath.Base(fileName)
+	return xRefTable.NewFileSpecDict(fn, encodeUTF16String(fn), "attached by pdfcpu", *ir)
 }
 
 func createSoundObject(xRefTable *XRefTable) (*IndirectRef, error) {
@@ -776,7 +777,7 @@ func createXObjectForPrinterMark(xRefTable *XRefTable) (*IndirectRef, error) {
 	sd.Insert("BBox", NewNumberArray(0, 0, 25, 25))
 	sd.Insert("Matrix", NewIntegerArray(1, 0, 0, 1, 0, 0))
 
-	if err := encodeStream(sd); err != nil {
+	if err := sd.Encode(); err != nil {
 		return nil, err
 	}
 
@@ -832,7 +833,7 @@ func createXObjectForWaterMark(xRefTable *XRefTable) (*IndirectRef, error) {
 	sd.Insert("Matrix", NewIntegerArray(1, 0, 0, 1, 0, 0))
 	sd.Insert("Resources", resourceDict)
 
-	if err = encodeStream(sd); err != nil {
+	if err = sd.Encode(); err != nil {
 		return nil, err
 	}
 
@@ -991,7 +992,7 @@ func createEmbeddedGoToAction(xRefTable *XRefTable) (*IndirectRef, error) {
 			"T": Dict(
 				map[string]Object{
 					"R": Name("C"),
-					"N": StringLiteral(f),
+					"N": StringLiteral(filepath.Base(f)),
 				},
 			),
 		},
@@ -1039,7 +1040,7 @@ func createLinkAnnotationDictWithLaunchAction(xRefTable *XRefTable, pageIndRef I
 				map[string]Object{
 					"Type": Name("Action"),
 					"S":    Name("Launch"),
-					"F":    StringLiteral(".\\/golang.pdf"), // e.g pdf, wav..
+					"F":    StringLiteral("golang.pdf"),
 					"Win": Dict(
 						map[string]Object{
 							"F": StringLiteral("golang.pdf"),

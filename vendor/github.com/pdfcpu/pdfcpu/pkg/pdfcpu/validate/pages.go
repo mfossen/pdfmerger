@@ -88,8 +88,7 @@ func validatePageContents(xRefTable *pdf.XRefTable, d pdf.Dict) (hasContents boo
 		// process array of content stream dicts.
 
 		for _, o := range o {
-
-			o, err = xRefTable.DereferenceStreamDict(o)
+			o, _, err = xRefTable.DereferenceStreamDict(o)
 			if err != nil {
 				return false, err
 			}
@@ -904,7 +903,6 @@ func validateResources(xRefTable *pdf.XRefTable, d pdf.Dict) (hasResources bool,
 func validatePagesDict(xRefTable *pdf.XRefTable, d pdf.Dict, objNr, genNumber int, hasResources, hasMediaBox bool) error {
 
 	// Resources and Mediabox are inherited.
-	//var dHasResources, dHasMediaBox bool
 	dHasResources, dHasMediaBox, err := validatePagesDictGeneralEntries(xRefTable, d)
 	if err != nil {
 		return err
@@ -962,19 +960,17 @@ func validatePagesDict(xRefTable *pdf.XRefTable, d pdf.Dict, objNr, genNumber in
 		case "Pages":
 			// Recurse over pagetree
 			err = validatePagesDict(xRefTable, pageNodeDict, objNumber, genNumber, hasResources, hasMediaBox)
-			if err != nil {
-				return err
-			}
 
 		case "Page":
 			err = validatePageDict(xRefTable, pageNodeDict, objNumber, genNumber, hasResources, hasMediaBox)
-			if err != nil {
-				return err
-			}
 
 		default:
 			return errors.Errorf("pdfcpu: validatePagesDict: Unexpected dict type: %s", dictType)
 
+		}
+
+		if err != nil {
+			return err
 		}
 
 	}
