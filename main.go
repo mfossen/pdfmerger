@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
+	"github.com/rs/zerolog"
 	"github.com/urfave/cli/v2"
 )
 
@@ -18,10 +18,10 @@ var (
 	inputDir  string
 	outputDir string
 	projects  map[string][]string
+	logger    zerolog.Logger = zerolog.New(zerolog.MultiLevelWriter(zerolog.NewConsoleWriter())).With().Timestamp().Logger()
 )
 
 func main() {
-
 	app := &cli.App{
 		Name:   "pdfmerger",
 		Usage:  "takes a directory of PDF files and merges them by project",
@@ -31,7 +31,7 @@ func main() {
 
 	err := app.Run(os.Args)
 	if err != nil {
-		log.Fatalf("error running program: %s", err.Error())
+		logger.Fatal().Msgf("error running program: %s", err.Error())
 	}
 }
 
@@ -78,6 +78,7 @@ func checkAndSetAlternateDirectories(args []string) error {
 }
 
 func run(c *cli.Context) error {
+
 	if err := checkAndSetAlternateDirectories(c.Args().Slice()); err != nil {
 		return err
 	}
@@ -94,20 +95,40 @@ func run(c *cli.Context) error {
 		}
 	}
 
-	projects = make(map[string][]string)
-	err := filepath.Walk(inputDir, walkFunc)
+	f, err := os.Create(filepath.Join(outputDir, "log.txt"))
 	if err != nil {
-		log.Fatalf("error scanning files: %s\n", err.Error())
+		return err
+	}
+	defer f.Close()
+	logger = zerolog.New(zerolog.MultiLevelWriter(
+		zerolog.NewConsoleWriter(),
+		zerolog.ConsoleWriter{Out: f, NoColor: true})).With().Timestamp().Logger()
+
+	projects = make(map[string][]string)
+	err = filepath.Walk(inputDir, walkFunc)
+	if err != nil {
+		logger.Fatal().Msgf("error scanning files: %s", err.Error())
 	}
 
-	for project, files := range projects {
-		err = mergePDF(project, files)
+	sortedProjectNames := sortProjects(projects)
+
+	for _, pName := range sortedProjectNames {
+		err = mergePDF(pName, projects[pName])
 		if err != nil {
-			log.Fatalf("error merging PDFs: %s", err.Error())
+			logger.Warn().Msgf("error merging PDFs: %s", err.Error())
 		}
 	}
 
 	return nil
+}
+
+func sortProjects(projects map[string][]string) []string {
+	projectNames := []string{}
+	for p, _ := range projects {
+		projectNames = append(projectNames, p)
+	}
+	sort.Strings(projectNames)
+	return projectNames
 }
 
 func walkFunc(path string, info os.FileInfo, err error) error {
@@ -116,7 +137,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	}
 
 	if info.IsDir() && info.Name() != ".." && info.Name() != filepath.Base(inputDir) {
-		log.Printf("skipping directory: %s\n", info.Name())
+		logger.Info().Msgf("skipping directory: %s", info.Name())
 		return filepath.SkipDir
 	}
 
@@ -127,7 +148,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	_, file := filepath.Split(path)
 
 	if filepath.Ext(file) != ".pdf" {
-		log.Printf("skipping non-pdf file: %s\n", path)
+		logger.Info().Msgf("skipping non-pdf file: %s\n", path)
 		return nil
 	}
 
@@ -163,14 +184,20 @@ func mergePDF(project string, projectFiles []string) error {
 		return replacedI < replacedJ
 	})
 
-	fmt.Printf("order of merging into project %s:\n", project)
+	logger.Info().Msgf("order of merging into project %s:", project)
 	for _, file := range projectFiles {
-		log.Println(file)
+		logger.Info().Msgf(file)
 	}
 
 	outputFile := filepath.Join(outputDir, project+".pdf")
 
 	mergeConf := pdfcpu.NewDefaultConfiguration()
 	mergeConf.ValidationMode = pdfcpu.ValidationNone
-	return api.MergeCreateFile(projectFiles, outputFile, mergeConf)
+	err := api.MergeCreateFile(projectFiles, outputFile, mergeConf)
+	if err != nil {
+		return err
+	}
+	num, err := api.PageCountFile(outputFile)
+	logger.Info().Msgf("pages: %d, err: %v", num, err)
+	return api.ValidateFile(outputFile, mergeConf)
 }
