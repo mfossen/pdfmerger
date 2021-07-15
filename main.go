@@ -124,7 +124,7 @@ func run(c *cli.Context) error {
 
 func sortProjects(projects map[string][]string) []string {
 	projectNames := []string{}
-	for p, _ := range projects {
+	for p := range projects {
 		projectNames = append(projectNames, p)
 	}
 	sort.Strings(projectNames)
@@ -197,7 +197,9 @@ func mergePDF(project string, projectFiles []string) error {
 	if err != nil {
 		return err
 	}
-	num, err := api.PageCountFile(outputFile)
-	logger.Info().Msgf("pages: %d, err: %v", num, err)
-	return api.ValidateFile(outputFile, mergeConf)
+	if err := api.ValidateFile(outputFile, mergeConf); err != nil {
+		return err
+	}
+	logger.Info().Msgf("successfully validated file: %s", outputFile)
+	return nil
 }

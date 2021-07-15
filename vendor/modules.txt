@@ -5,9 +5,8 @@ github.com/cpuguy83/go-md2man/v2/md2man
 github.com/hhrutter/lzw
 # github.com/hhrutter/tiff v0.0.0-20190829141212-736cae8d0bc7
 github.com/hhrutter/tiff
-# github.com/pdfcpu/pdfcpu v0.3.11
+# github.com/pdfcpu/pdfcpu v0.3.12
 ## explicit
-github.com/pdfcpu/pdfcpu/internal/config
 github.com/pdfcpu/pdfcpu/internal/corefont/metrics
 github.com/pdfcpu/pdfcpu/pkg/api
 github.com/pdfcpu/pdfcpu/pkg/filter
@@ -29,7 +28,7 @@ github.com/russross/blackfriday/v2
 # github.com/urfave/cli/v2 v2.3.0
 ## explicit
 github.com/urfave/cli/v2
-# golang.org/x/image v0.0.0-20210622092929-e6eecd499c2c
+# golang.org/x/image v0.0.0-20210628002857-a66eb6448b8d
 ## explicit
 golang.org/x/image/ccitt
 golang.org/x/image/riff
