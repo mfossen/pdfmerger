@@ -5,20 +5,23 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
-	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/rs/zerolog"
 	"github.com/urfave/cli/v2"
 )
 
 var (
-	inputDir  string
-	outputDir string
-	projects  map[string][]string
-	logger    zerolog.Logger = zerolog.New(zerolog.MultiLevelWriter(zerolog.NewConsoleWriter())).With().Timestamp().Logger()
+	inputDir       string
+	outputDir      string
+	projects       map[string][]string
+	signatureFiles []string
+	debug          bool           = false
+	logger         zerolog.Logger = zerolog.New(zerolog.MultiLevelWriter(zerolog.NewConsoleWriter())).With().Timestamp().Logger()
 )
 
 func main() {
@@ -37,6 +40,11 @@ func main() {
 
 func flags() []cli.Flag {
 	return []cli.Flag{
+		&cli.BoolFlag{
+			Name:        "debug",
+			Usage:       "set debug logging",
+			Destination: &debug,
+		},
 		&cli.StringFlag{
 			Name:        "input-directory",
 			Aliases:     []string{"i"},
@@ -54,6 +62,29 @@ func flags() []cli.Flag {
 	}
 }
 
+func checkAndSetSignatureFiles(argsLine string) (string, error) {
+
+	reg, err := regexp.Compile(`{[.a-z]+}`)
+	if err != nil {
+		return argsLine, err
+	}
+
+	foundStrings := reg.FindAllString(argsLine, -1)
+	logger.Debug().Msgf("found string: %v\n", foundStrings)
+
+	for _, v := range foundStrings {
+
+		argsLine = strings.Replace(argsLine, v, "", -1)
+
+		cleanedFoundString := strings.TrimSpace(strings.Trim(v, `{}`))
+		logger.Debug().Msgf("cleaned found string: %v\n", cleanedFoundString)
+
+		signatureFiles = append(signatureFiles, cleanedFoundString)
+	}
+
+	return argsLine, nil
+}
+
 func checkAndSetAlternateDirectories(args []string) error {
 	if inputDir != "" && outputDir != "" {
 		return nil
@@ -65,7 +96,15 @@ func checkAndSetAlternateDirectories(args []string) error {
 
 	//do some parsing, input and output dir separated by ::
 	line := strings.Join(args, " ")
-	splitLine := strings.Split(line, "::")
+	logger.Debug().Msgf("joined line: %v\n", line)
+
+	sigLine, err := checkAndSetSignatureFiles(line)
+	if err != nil {
+		return err
+	}
+	logger.Debug().Msgf("returned line after parsing signature file: %v\n", sigLine)
+
+	splitLine := strings.Split(sigLine, "::")
 
 	if len(splitLine) != 2 {
 		return fmt.Errorf("split line does not end up with two directories: %v", splitLine)
@@ -78,10 +117,21 @@ func checkAndSetAlternateDirectories(args []string) error {
 }
 
 func run(c *cli.Context) error {
+	if debug {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	} else {
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	}
 
 	if err := checkAndSetAlternateDirectories(c.Args().Slice()); err != nil {
 		return err
 	}
+
+	logger.Debug().Msgf(`
+    input dir: %v
+    output dir: %v
+    signature file: %v
+	`, inputDir, outputDir, signatureFiles)
 
 	// create output directory if it doesn't exist
 	if _, err := os.Stat(outputDir); err != nil {
@@ -184,6 +234,10 @@ func mergePDF(project string, projectFiles []string) error {
 		return replacedI < replacedJ
 	})
 
+	// if signatureFile != "" {
+	// 	projectFiles = append(projectFiles, signatureFile)
+	// }
+
 	logger.Info().Msgf("order of merging into project %s:", project)
 	for _, file := range projectFiles {
 		logger.Info().Msgf(file)
@@ -191,8 +245,8 @@ func mergePDF(project string, projectFiles []string) error {
 
 	outputFile := filepath.Join(outputDir, project+".pdf")
 
-	mergeConf := pdfcpu.NewDefaultConfiguration()
-	mergeConf.ValidationMode = pdfcpu.ValidationNone
+	mergeConf := model.NewDefaultConfiguration()
+	mergeConf.ValidationMode = model.ValidationNone
 	err := api.MergeCreateFile(projectFiles, outputFile, mergeConf)
 	if err != nil {
 		return err
