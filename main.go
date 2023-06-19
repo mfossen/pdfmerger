@@ -3,23 +3,23 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"regexp"
-	"sort"
-	"strings"
-
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/rs/zerolog"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/exp/slices"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 )
 
 var (
 	inputDir       string
 	outputDir      string
 	projects       map[string][]string
-	signatureFiles []string
+	signatureFiles map[string][]string
 	debug          bool           = false
 	logger         zerolog.Logger = zerolog.New(zerolog.MultiLevelWriter(zerolog.NewConsoleWriter())).With().Timestamp().Logger()
 )
@@ -62,28 +62,43 @@ func flags() []cli.Flag {
 	}
 }
 
-func checkAndSetSignatureFiles(argsLine string) (string, error) {
-
-	reg, err := regexp.Compile(`{[.a-z]+}`)
-	if err != nil {
-		return argsLine, err
-	}
-
-	foundStrings := reg.FindAllString(argsLine, -1)
-	logger.Debug().Msgf("found string: %v\n", foundStrings)
-
-	for _, v := range foundStrings {
-
-		argsLine = strings.Replace(argsLine, v, "", -1)
-
-		cleanedFoundString := strings.TrimSpace(strings.Trim(v, `{}`))
-		logger.Debug().Msgf("cleaned found string: %v\n", cleanedFoundString)
-
-		signatureFiles = append(signatureFiles, cleanedFoundString)
-	}
-
-	return argsLine, nil
+func parseSignatureFiles() error {
+	signatureFiles = make(map[string][]string)
+	err := filepath.WalkDir(outputDir, func(path string, d fs.DirEntry, err error) error {
+		if strings.Contains(d.Name(), "signature") {
+			basename := strings.Replace(strings.Replace(d.Name(), filepath.Ext(d.Name()), "", -1), "signature-", "", -1)
+			logger.Debug().Msgf("signature file basename: %v\n", basename)
+			suffix := strings.Split(basename, ".")[0]
+			signatureFiles[suffix] = append(signatureFiles[suffix], path)
+			logger.Debug().Msgf("adding file %v to suffix %v\n", path, suffix)
+		}
+		return err
+	})
+	return err
 }
+
+// func checkAndSetSignatureFiles(argsLine string) (string, error) {
+//
+// 	reg, err := regexp.Compile(`{[.a-z]+}`)
+// 	if err != nil {
+// 		return argsLine, err
+// 	}
+//
+// 	foundStrings := reg.FindAllString(argsLine, -1)
+// 	logger.Debug().Msgf("found string: %v\n", foundStrings)
+//
+// 	for _, v := range foundStrings {
+//
+// 		argsLine = strings.Replace(argsLine, v, "", -1)
+//
+// 		cleanedFoundString := strings.TrimSpace(strings.Trim(v, `{}`))
+// 		logger.Debug().Msgf("cleaned found string: %v\n", cleanedFoundString)
+//
+// 		signatureFiles = append(signatureFiles, cleanedFoundString)
+// 	}
+//
+// 	return argsLine, nil
+// }
 
 func checkAndSetAlternateDirectories(args []string) error {
 	if inputDir != "" && outputDir != "" {
@@ -98,13 +113,14 @@ func checkAndSetAlternateDirectories(args []string) error {
 	line := strings.Join(args, " ")
 	logger.Debug().Msgf("joined line: %v\n", line)
 
-	sigLine, err := checkAndSetSignatureFiles(line)
-	if err != nil {
-		return err
-	}
-	logger.Debug().Msgf("returned line after parsing signature file: %v\n", sigLine)
+	// sigLine, err := checkAndSetSignatureFiles(line)
+	// if err != nil {
+	// 	return err
+	// }
+	// logger.Debug().Msgf("returned line after parsing signature file: %v\n", sigLine)
 
-	splitLine := strings.Split(sigLine, "::")
+	// splitLine := strings.Split(sigLine, "::")
+	splitLine := strings.Split(line, "::")
 
 	if len(splitLine) != 2 {
 		return fmt.Errorf("split line does not end up with two directories: %v", splitLine)
@@ -126,6 +142,12 @@ func run(c *cli.Context) error {
 	if err := checkAndSetAlternateDirectories(c.Args().Slice()); err != nil {
 		return err
 	}
+
+	if err := parseSignatureFiles(); err != nil {
+		return err
+	}
+
+	// return nil
 
 	logger.Debug().Msgf(`
     input dir: %v
@@ -239,7 +261,8 @@ func mergePDF(project string, projectFiles []string) error {
 	// }
 
 	logger.Info().Msgf("order of merging into project %s:", project)
-	for _, file := range projectFiles {
+	sigAddedProjectFiles := addSigFiles(projectFiles)
+	for _, file := range sigAddedProjectFiles {
 		logger.Info().Msgf(file)
 	}
 
@@ -247,7 +270,7 @@ func mergePDF(project string, projectFiles []string) error {
 
 	mergeConf := model.NewDefaultConfiguration()
 	mergeConf.ValidationMode = model.ValidationNone
-	err := api.MergeCreateFile(projectFiles, outputFile, mergeConf)
+	err := api.MergeCreateFile(sigAddedProjectFiles, outputFile, mergeConf)
 	if err != nil {
 		return err
 	}
@@ -256,4 +279,38 @@ func mergePDF(project string, projectFiles []string) error {
 	}
 	logger.Info().Msgf("successfully validated file: %s", outputFile)
 	return nil
+}
+
+func addSigFiles(projectFiles []string) []string {
+	tempFiles := []string{}
+	tempFiles = append(tempFiles, projectFiles...)
+	for i, name := range tempFiles {
+		if strings.Contains(name, "signature") {
+			logger.Debug().Msgf("skipping signature file: %v\n", name)
+			continue
+		}
+		split := strings.Split(name, "-")
+		logger.Debug().Msgf("split of file: %v, %#v\n", name, split)
+		if len(split) < 2 {
+			continue
+		}
+		suffix := strings.Replace(split[1], filepath.Ext(split[1]), "", -1)
+
+		logger.Debug().Msgf("found suffix of file: %v, suffix %v\n", name, suffix)
+		logger.Debug().Msgf("sig files map %+v\n", signatureFiles)
+
+		if foundSuffix, ok := signatureFiles[suffix]; ok {
+			logger.Debug().Msgf("inserting signature files %+v\n", signatureFiles[suffix])
+			idx := slices.Index(tempFiles, name)
+			if i+1 == len(tempFiles) {
+				logger.Debug().Msgf("appending to %+v\n", tempFiles)
+				tempFiles = append(tempFiles, foundSuffix...)
+			} else {
+				logger.Debug().Msgf("inserting into %+v\n", tempFiles)
+				tempFiles = slices.Insert(tempFiles, idx+1, foundSuffix...)
+			}
+		}
+	}
+	logger.Debug().Msgf("temp project files after adding sig file: %#v\n", tempFiles)
+	return tempFiles
 }

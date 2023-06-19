@@ -49,12 +49,16 @@ github.com/rs/zerolog/internal/json
 # github.com/russross/blackfriday/v2 v2.1.0
 ## explicit
 github.com/russross/blackfriday/v2
-# github.com/urfave/cli/v2 v2.25.6
+# github.com/urfave/cli/v2 v2.25.7
 ## explicit; go 1.18
 github.com/urfave/cli/v2
 # github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673
 ## explicit
 github.com/xrash/smetrics
+# golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
+## explicit; go 1.20
+golang.org/x/exp/constraints
+golang.org/x/exp/slices
 # golang.org/x/image v0.8.0
 ## explicit; go 1.12
 golang.org/x/image/ccitt

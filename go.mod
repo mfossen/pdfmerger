@@ -5,7 +5,8 @@ go 1.20
 require (
 	github.com/pdfcpu/pdfcpu v0.4.1
 	github.com/rs/zerolog v1.29.1
-	github.com/urfave/cli/v2 v2.25.6
+	github.com/urfave/cli/v2 v2.25.7
+	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
 )
 
 require (
